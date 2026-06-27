@@ -1,0 +1,1689 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>天地盖精准结构 - 独立纸张修复版</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f5f5f5; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top:0; left:0; z-index: 1; }
+        #ui-overlay { position: absolute; top: 30px; left: 30px; color: #222; pointer-events: none; z-index: 10; }
+        h1 { margin: 0 0 10px 0; font-size: 20px; letter-spacing: 2px; font-weight: 600; color: #111; }
+        #tip { color: #fff; background: #222; padding: 10px 18px; border-radius: 4px; font-size: 14px; display: inline-block; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: all 0.3s ease; }
+    </style>
+    
+    <script src="https://fastly.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://fastly.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://fastly.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
+</head>
+<body>
+
+    <div id="ui-overlay">
+        <h1>PORTFOLIO STRUCTURE</h1>
+        <div id="tip">阶段 1：用鼠标拖拽旋转，点击【盒盖】将其揭开</div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        // =================【 1. 初始化场景 】=================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf5f5f5); 
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(5, 4.5, 7.5); 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        scene.add(new THREE.AmbientLight(0x666666));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 5);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
+
+        const dirLightSub = new THREE.DirectionalLight(0xffffff, 0.4);
+        dirLightSub.position.set(-5, 2, -5);
+        scene.add(dirLightSub);
+
+        // =================【 2. 贴图加载 】=================
+        const textureLoader = new THREE.TextureLoader();
+        const texBoxLid = textureLoader.load('./封面.jpg');   
+        const texBoxBase = textureLoader.load('./封底.jpg');  
+        const texIntro1 = textureLoader.load('./个人介绍1.jpg'); 
+        const texIntro2 = textureLoader.load('./个人介绍2.jpg'); 
+        const texContent = textureLoader.load('./目录.jpg');     
+
+        // =================【 3. 物理尺寸与材质定义 】=================
+        const bookW = 3.0, bookD = 2.1; 
+        const pageThick = 0.04;        
+        const pageCount = 4;           
+        const thick = 0.04;            
+        const gap = 0.015;             
+        const totalBookH = pageCount * pageThick; 
+
+        const matBoxSide = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 }); 
+        const matPaper = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });  
+        const matLidTop = new THREE.MeshStandardMaterial({ map: texBoxLid, roughness: 0.4 });
+        const matBaseBottom = new THREE.MeshStandardMaterial({ map: texBoxBase, roughness: 0.4 });
+
+        const matPaperFold = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.9 }); 
+        const matAcc1 = new THREE.MeshStandardMaterial({ map: texIntro1, roughness: 0.5 });
+        const matAcc2 = new THREE.MeshStandardMaterial({ map: texIntro2, roughness: 0.5 });
+        const matAcc3 = new THREE.MeshStandardMaterial({ map: texContent, roughness: 0.5 });
+
+        // =================【 4. 核心模型构建 】=================
+
+        // A. 内部嵌套的主书本
+        const bookGroup = new THREE.Group();
+        bookGroup.position.y = -0.2; 
+        scene.add(bookGroup);
+
+        for(let i=0; i<pageCount; i++) {
+            const mats = [matPaper, matPaper, matPaper, matPaper, matPaper, matPaper];
+            const pageMesh = new THREE.Mesh(new THREE.BoxGeometry(bookW, pageThick - 0.003, bookD), mats); 
+            pageMesh.position.y = i * pageThick + pageThick/2;
+            pageMesh.castShadow = true; pageMesh.receiveShadow = true;
+            bookGroup.add(pageMesh);
+        }
+
+        // 第四章目录左移以后，把中间空出来的书页底面真正改成黑色
+        function turnCenterBlack() {
+            bookGroup.children.forEach((pageMesh) => {
+                if (pageMesh.isMesh) {
+                    pageMesh.material = blackPageMats;
+                    pageMesh.material.needsUpdate = true;
+                }
+            });
+        }
+
+        // B. 纯平托盘板（底盒）
+        const baseGroup = new THREE.Group();
+        scene.add(baseGroup);
+        const baseW = bookW + gap * 2 + thick * 2;
+        const baseD = bookD + gap * 2 + thick * 2;
+        const baseMaterials = [matBoxSide, matBoxSide, matBoxSide, matBaseBottom, matBoxSide, matBoxSide];
+        const baseBottomMesh = new THREE.Mesh(new THREE.BoxGeometry(baseW, thick, baseD), baseMaterials);
+        baseBottomMesh.position.y = -0.2 - thick/2; 
+        baseBottomMesh.receiveShadow = true;
+        baseGroup.add(baseBottomMesh);
+
+        // C. 大盒盖（天盖）- 修复：略微垫高内部留出空间，防止叠加的纸张穿透盒顶
+        const lidGroup = new THREE.Group();
+        scene.add(lidGroup);
+        const lidW = baseW + gap * 2;
+        const lidD = baseD + gap * 2;
+        const clearance = 0.03; // 为内部多张纸张预留的安全高度
+        const lidH = totalBookH + thick + clearance; 
+
+        const lidTopMaterials = [matBoxSide, matBoxSide, matLidTop, matBoxSide, matBoxSide, matBoxSide];
+        const lidTopMesh = new THREE.Mesh(new THREE.BoxGeometry(lidW, thick, lidD), lidTopMaterials);
+        lidTopMesh.position.y = totalBookH + clearance + thick/2;
+        lidTopMesh.castShadow = true;
+        lidGroup.add(lidTopMesh);
+
+        const lipY = (totalBookH + clearance) / 2; 
+        const lipN = new THREE.Mesh(new THREE.BoxGeometry(lidW, lidH, thick), matBoxSide); lipN.position.set(0, lipY, -lidD/2 + thick/2); lipN.castShadow = true; lidGroup.add(lipN);
+        const lipS = new THREE.Mesh(new THREE.BoxGeometry(lidW, lidH, thick), matBoxSide); lipS.position.set(0, lipY,  lidD/2 - thick/2); lipS.castShadow = true; lidGroup.add(lipS);
+        const lipE = new THREE.Mesh(new THREE.BoxGeometry(thick, lidH, lidD - thick*2), matBoxSide); lipE.position.set(lidW/2 - thick/2, lipY, 0); lipE.castShadow = true; lidGroup.add(lipE);
+        const lipW = new THREE.Mesh(new THREE.BoxGeometry(thick, lidH, lidD - thick*2), matBoxSide); lipW.position.set(-lidW/2 + thick/2, lipY, 0); lipW.castShadow = true; lidGroup.add(lipW);
+
+        lidGroup.position.y = -0.2;
+
+        // D. 独立放在书上面的手风琴折页纸张
+        const accGroup = new THREE.Group();
+        // 💡 修复点 1：将独立纸张的位置在Y轴稍微抬高 (-0.02)，确保它覆盖在新添加的龙图册(-0.039)之上
+        accGroup.position.set(0, -0.020, 0); 
+        scene.add(accGroup);
+
+        const accW = bookW; 
+        const accD = bookD;
+        const accTh = 0.005; 
+
+        // 面板1 (独立图1)
+        const panel1Mats = [matPaperFold, matPaperFold, matAcc1, matPaperFold, matPaperFold, matPaperFold];
+        const panel1 = new THREE.Mesh(new THREE.BoxGeometry(accW, accTh, accD), panel1Mats);
+        panel1.castShadow = true;
+        accGroup.add(panel1);
+
+        const pivot1 = new THREE.Group();
+        pivot1.position.set(accW / 2, -accTh * 1.2, 0); 
+        panel1.add(pivot1);
+
+        // 面板2 (独立图2)
+        const panel2Mats = [matPaperFold, matPaperFold, matAcc2, matPaperFold, matPaperFold, matPaperFold];
+        const panel2 = new THREE.Mesh(new THREE.BoxGeometry(accW, accTh, accD), panel2Mats);
+        panel2.position.set(accW / 2, 0, 0); 
+        panel2.castShadow = true;
+        pivot1.add(panel2);
+
+        const pivot2 = new THREE.Group();
+        pivot2.position.set(accW / 2, accTh * 1.2, 0); 
+        panel2.add(pivot2);
+
+        // 面板3 (独立图3)
+        const panel3Mats = [matPaperFold, matPaperFold, matAcc3, matPaperFold, matPaperFold, matPaperFold];
+        const panel3 = new THREE.Mesh(new THREE.BoxGeometry(accW, accTh, accD), panel3Mats);
+        panel3.position.set(accW / 2, 0, 0);
+        panel3.castShadow = true;
+        pivot2.add(panel3);
+
+        // 初始完全折叠状态
+        pivot1.rotation.z = Math.PI;  
+        pivot2.rotation.z = -Math.PI; 
+
+        // =================【 4.5 龙章节纵横复合结构 】=================
+        const texDrag1 = textureLoader.load('./第一章目录.jpg');
+        const texDrag2 = textureLoader.load('./崇宁真君1.jpg');
+        const texDrag3 = textureLoader.load('./崇宁真君2.jpg');
+        const texDrag4 = textureLoader.load('./崇宁真君3.jpg');
+        const texDrag5 = textureLoader.load('./崇宁真君4.jpg');
+        const texCY1 = textureLoader.load('./朝元图1.jpg');
+const texCY2 = textureLoader.load('./朝元图2.jpg');
+const texCY3 = textureLoader.load('./朝元图3.jpg');
+const texCY4 = textureLoader.load('./朝元图4.jpg');
+const texCY5 = textureLoader.load('./朝元图5.jpg');
+const texCY6 = textureLoader.load('./朝元图6.jpg');
+const texChapterEnd = textureLoader.load('./第一章结尾.jpg');
+const texTigerDir = textureLoader.load('./第二章目录.jpg');
+const texNuo1 = textureLoader.load('./傩戏1.jpg');
+const texNuo2 = textureLoader.load('./傩戏2.jpg');
+const texNuo3 = textureLoader.load('./傩戏3.jpg');
+const texNuo4 = textureLoader.load('./傩戏4.jpg');
+const texCook1 = textureLoader.load('./厨王争霸1.jpg');
+const texCook2 = textureLoader.load('./厨王争霸2.jpg');
+const texCook3 = textureLoader.load('./厨王争霸3.jpg');
+const texCook4 = textureLoader.load('./厨王争霸4.jpg');
+const texChapter2End = textureLoader.load('./第二章结尾.jpg');
+const texThirdDir = textureLoader.load('./第三章目录.jpg');
+const texComputer1 = textureLoader.load('./计算机1.jpg');
+const texComputer2 = textureLoader.load('./计算机2.jpg');
+const texComputer3 = textureLoader.load('./计算机3.jpg');
+const texComputer4 = textureLoader.load('./计算机4.jpg');
+const texPoster1 = textureLoader.load('./海报1.jpg');
+const texPoster2 = textureLoader.load('./海报2.jpg');
+const texChapter3End = textureLoader.load('./第三章结尾.jpg');
+const texFourthDir = textureLoader.load('./第四章目录.jpg');
+const texBobo1 = textureLoader.load('./啵啵1.jpg');
+const texBobo2 = textureLoader.load('./啵啵2.jpg');
+const texBobo3 = textureLoader.load('./啵啵3.jpg');
+const texBobo4 = textureLoader.load('./啵啵4.jpg');
+const texAutism1 = textureLoader.load('./自闭症ui1.jpg');
+const texAutism2 = textureLoader.load('./自闭症ui2.jpg');
+const texAutism3 = textureLoader.load('./自闭症ui3.jpg');
+const texAutism4 = textureLoader.load('./自闭症ui4.jpg');
+const texAutism5 = textureLoader.load('./自闭症ui5.jpg');
+const texAutism6 = textureLoader.load('./自闭症ui6.jpg');
+const texChapter4End = textureLoader.load('./第四章结尾.jpg');
+        const matDrag1 = new THREE.MeshStandardMaterial({ map: texDrag1, roughness: 0.6 });
+        const matDrag2 = new THREE.MeshStandardMaterial({ map: texDrag2, roughness: 0.6 });
+        const matDrag3 = new THREE.MeshStandardMaterial({ map: texDrag3, roughness: 0.6 });
+        const matDrag4 = new THREE.MeshStandardMaterial({ map: texDrag4, roughness: 0.6 });
+        const matDrag5 = new THREE.MeshStandardMaterial({ map: texDrag5, roughness: 0.6 });
+        const matCY1 = new THREE.MeshStandardMaterial({
+    map: texCY1,
+    roughness: 0.6,
+    side: THREE.DoubleSide
+});
+const matCY2 = new THREE.MeshStandardMaterial({ map: texCY2, roughness: 0.6 });
+const matCY3 = new THREE.MeshStandardMaterial({ map: texCY3, roughness: 0.6 });
+const matCY4 = new THREE.MeshStandardMaterial({ map: texCY4, roughness: 0.6 });
+const matCY5 = new THREE.MeshStandardMaterial({ map: texCY5, roughness: 0.6 });
+const matCY6 = new THREE.MeshStandardMaterial({ map: texCY6, roughness: 0.6 });
+const matChapterEnd = new THREE.MeshStandardMaterial({
+    map: texChapterEnd,
+    roughness: 0.6,
+    side: THREE.DoubleSide
+});
+const matTigerDir = new THREE.MeshStandardMaterial({ map: texTigerDir, roughness: 0.6, side: THREE.DoubleSide });
+const matNuo1 = new THREE.MeshStandardMaterial({ map: texNuo1, roughness: 0.6, side: THREE.DoubleSide });
+const matNuo2 = new THREE.MeshStandardMaterial({ map: texNuo2, roughness: 0.6, side: THREE.DoubleSide });
+const matNuo3 = new THREE.MeshStandardMaterial({ map: texNuo3, roughness: 0.6, side: THREE.DoubleSide });
+const matNuo4 = new THREE.MeshStandardMaterial({ map: texNuo4, roughness: 0.6, side: THREE.DoubleSide });
+const matCook1 = new THREE.MeshStandardMaterial({ map: texCook1, roughness: 0.6, side: THREE.DoubleSide });
+const matCook2 = new THREE.MeshStandardMaterial({ map: texCook2, roughness: 0.6, side: THREE.DoubleSide });
+const matCook3 = new THREE.MeshStandardMaterial({ map: texCook3, roughness: 0.6, side: THREE.DoubleSide });
+const matCook4 = new THREE.MeshStandardMaterial({ map: texCook4, roughness: 0.6, side: THREE.DoubleSide });
+const matChapter2End = new THREE.MeshStandardMaterial({ map: texChapter2End, roughness: 0.6, side: THREE.DoubleSide });
+const matThirdDir = new THREE.MeshStandardMaterial({ map: texThirdDir, roughness: 0.6, side: THREE.DoubleSide });
+const matComputer1 = new THREE.MeshStandardMaterial({ map: texComputer1, roughness: 0.6, side: THREE.DoubleSide });
+const matComputer2 = new THREE.MeshStandardMaterial({ map: texComputer2, roughness: 0.6, side: THREE.DoubleSide });
+const matComputer3 = new THREE.MeshStandardMaterial({ map: texComputer3, roughness: 0.6, side: THREE.DoubleSide });
+const matComputer4 = new THREE.MeshStandardMaterial({ map: texComputer4, roughness: 0.6, side: THREE.DoubleSide });
+const matPoster1 = new THREE.MeshStandardMaterial({ map: texPoster1, roughness: 0.6, side: THREE.DoubleSide });
+const matPoster2 = new THREE.MeshStandardMaterial({ map: texPoster2, roughness: 0.6, side: THREE.DoubleSide });
+const matChapter3End = new THREE.MeshStandardMaterial({ map: texChapter3End, roughness: 0.6, side: THREE.DoubleSide });
+const matFourthDir = new THREE.MeshStandardMaterial({ map: texFourthDir, roughness: 0.6, side: THREE.DoubleSide });
+const matBobo1 = new THREE.MeshStandardMaterial({ map: texBobo1, roughness: 0.6, side: THREE.DoubleSide });
+const matBobo2 = new THREE.MeshStandardMaterial({ map: texBobo2, roughness: 0.6, side: THREE.DoubleSide });
+const matBobo3 = new THREE.MeshStandardMaterial({ map: texBobo3, roughness: 0.6, side: THREE.DoubleSide });
+const matBobo4 = new THREE.MeshStandardMaterial({ map: texBobo4, roughness: 0.6, side: THREE.DoubleSide });
+const matAutism1 = new THREE.MeshStandardMaterial({ map: texAutism1, roughness: 0.6, side: THREE.DoubleSide });
+const matAutism2 = new THREE.MeshStandardMaterial({ map: texAutism2, roughness: 0.6, side: THREE.DoubleSide });
+const matAutism3 = new THREE.MeshStandardMaterial({ map: texAutism3, roughness: 0.6, side: THREE.DoubleSide });
+const matAutism4 = new THREE.MeshStandardMaterial({ map: texAutism4, roughness: 0.6, side: THREE.DoubleSide });
+const matAutism5 = new THREE.MeshStandardMaterial({ map: texAutism5, roughness: 0.6, side: THREE.DoubleSide });
+const matAutism6 = new THREE.MeshStandardMaterial({ map: texAutism6, roughness: 0.6, side: THREE.DoubleSide });
+const matChapter4End = new THREE.MeshStandardMaterial({ map: texChapter4End, roughness: 0.6, side: THREE.DoubleSide });
+const matCenterBlack = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.9, side: THREE.DoubleSide });
+const blackPageMats = [matCenterBlack, matCenterBlack, matCenterBlack, matCenterBlack, matCenterBlack, matCenterBlack];
+
+        const dragonGroup = new THREE.Group();
+        dragonGroup.position.set(0, totalBookH - 0.2 + 0.001, 0); // 绝对 Y 轴大约为 -0.039，被独立纸张 (-0.020) 完美盖住
+        scene.add(dragonGroup);
+
+        const panelDrag2 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matDrag2, matPaper, matPaper, matPaper]);
+        dragonGroup.add(panelDrag2);
+
+        const panelDrag1 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matDrag1, matPaper, matPaper, matPaper]);
+        panelDrag1.position.set(0, 0.003, 0); 
+        panelDrag1.castShadow = true;
+        dragonGroup.add(panelDrag1);
+
+        const pivotH1 = new THREE.Group();
+        pivotH1.position.set(bookW / 2, -0.002, 0); 
+        panelDrag2.add(pivotH1);
+
+        const panelDrag3 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matDrag3, matPaper, matPaper, matPaper]);
+        panelDrag3.position.set(bookW / 2, 0, 0);
+        pivotH1.add(panelDrag3);
+
+        const pivotH2 = new THREE.Group();
+        pivotH2.position.set(bookW / 2, -0.001, 0);
+        panelDrag3.add(pivotH2);
+
+        const panelDrag4 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matDrag4, matPaper, matPaper, matPaper]);
+        panelDrag4.position.set(bookW / 2, 0, 0);
+        pivotH2.add(panelDrag4);
+
+        const pivotH3 = new THREE.Group();
+        pivotH3.position.set(bookW / 2, -0.001, 0);
+        panelDrag4.add(pivotH3);
+
+        const panelDrag5 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matDrag5, matPaper, matPaper, matPaper]);
+        panelDrag5.position.set(bookW / 2, 0, 0);
+        pivotH3.add(panelDrag5);
+
+        pivotH1.rotation.z = -Math.PI; 
+        pivotH2.rotation.z = Math.PI;
+        pivotH3.rotation.z = -Math.PI;
+        // =================【 朝元图横向手风琴结构 】=================
+const chaoyuanGroup = new THREE.Group();
+chaoyuanGroup.position.set(0, -0.003, 0.002); 
+dragonGroup.add(chaoyuanGroup);
+
+const panelCY1 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matCY1, matCY1, matCY1, matCY1, matCY1, matCY1]
+);
+chaoyuanGroup.add(panelCY1);
+
+const pivotCY1 = new THREE.Group();
+pivotCY1.position.set(bookW / 2, -0.002, 0);
+panelCY1.add(pivotCY1);
+
+const panelCY2 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matCY2, matPaper, matPaper, matPaper]
+);
+panelCY2.position.set(bookW / 2, 0, 0);
+pivotCY1.add(panelCY2);
+
+const pivotCY2 = new THREE.Group();
+pivotCY2.position.set(bookW / 2, -0.001, 0);
+panelCY2.add(pivotCY2);
+
+const panelCY3 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matCY3, matPaper, matPaper, matPaper]
+);
+panelCY3.position.set(bookW / 2, 0, 0);
+pivotCY2.add(panelCY3);
+
+const pivotCY3 = new THREE.Group();
+pivotCY3.position.set(bookW / 2, -0.001, 0);
+panelCY3.add(pivotCY3);
+
+const panelCY4 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matCY4, matPaper, matPaper, matPaper]
+);
+panelCY4.position.set(bookW / 2, 0, 0);
+pivotCY3.add(panelCY4);
+
+const pivotCY4 = new THREE.Group();
+pivotCY4.position.set(bookW / 2, -0.001, 0);
+panelCY4.add(pivotCY4);
+
+const panelCY5 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matCY5, matPaper, matPaper, matPaper]
+);
+panelCY5.position.set(bookW / 2, 0, 0);
+pivotCY4.add(panelCY5);
+
+const pivotCY5 = new THREE.Group();
+pivotCY5.position.set(bookW / 2, -0.001, 0);
+panelCY5.add(pivotCY5);
+
+const panelCY6 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matCY6, matPaper, matPaper, matPaper]
+);
+panelCY6.position.set(bookW / 2, 0, 0);
+pivotCY5.add(panelCY6);
+
+pivotCY1.rotation.z = -Math.PI;
+pivotCY2.rotation.z = Math.PI;
+pivotCY3.rotation.z = -Math.PI;
+pivotCY4.rotation.z = Math.PI;
+pivotCY5.rotation.z = -Math.PI;
+// =================【 第一章结尾页 】=================
+const panelChapterEnd = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matChapterEnd, matChapterEnd, matChapterEnd, matChapterEnd, matChapterEnd, matChapterEnd]
+);
+
+panelChapterEnd.position.set(0, -0.009, 0);
+panelChapterEnd.visible = false;
+chaoyuanGroup.add(panelChapterEnd);
+
+// =================【 第二章目录 + 傩戏 + 厨王争霸结构 】=================
+const tigerGroup = new THREE.Group();
+tigerGroup.position.set(0, -0.002, 0.004);
+chaoyuanGroup.add(tigerGroup);
+
+const panelTigerDir = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matTigerDir, matTigerDir, matTigerDir, matTigerDir, matTigerDir, matTigerDir]
+);
+panelTigerDir.visible = false;
+tigerGroup.add(panelTigerDir);
+
+// 第三章目录：第二章目录右移后，中心位置先变成第三章目录，但到第二章结尾后才进入交互
+const panelThirdDir = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matThirdDir, matThirdDir, matThirdDir, matThirdDir, matThirdDir, matThirdDir]
+);
+panelThirdDir.position.set(0, 0.006, 0); // 中心第三章目录，显示时放到上层，避免被第二章目录/白纸压住
+panelThirdDir.visible = false;
+tigerGroup.add(panelThirdDir);
+
+// 第四章目录：第三章目录移走后，中间先变成第四章目录；第三章结尾出现前不可进入交互
+const panelFourthDir = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matFourthDir, matFourthDir, matFourthDir, matFourthDir, matFourthDir, matFourthDir]
+);
+panelFourthDir.position.set(0, 0.007, 0);
+panelFourthDir.visible = false;
+tigerGroup.add(panelFourthDir);
+
+// =================【 第四章：啵啵结构 】=================
+// 啵啵1：先从第四章目录下面露出来；再次点击时先左移 1 个 A4，再继续左移 2 个 A4
+const panelBobo1 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matBobo1, matBobo1, matBobo1, matBobo1, matBobo1, matBobo1]
+);
+panelBobo1.position.set(-bookW, 0.002, 0);
+panelBobo1.visible = false;
+tigerGroup.add(panelBobo1);
+
+// 啵啵2、啵啵3：始终挂在啵啵1右边，用来填充啵啵1和啵啵4之间的空隙
+const pivotBobo1 = new THREE.Group();
+pivotBobo1.position.set(bookW / 2, -0.002, 0);
+panelBobo1.add(pivotBobo1);
+
+const panelBobo2 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matBobo2, matPaper, matPaper, matPaper]
+);
+panelBobo2.position.set(bookW / 2, 0, 0);
+panelBobo2.visible = false;
+pivotBobo1.add(panelBobo2);
+
+const pivotBobo2 = new THREE.Group();
+pivotBobo2.position.set(bookW / 2, -0.001, 0);
+panelBobo2.add(pivotBobo2);
+
+const panelBobo3 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matBobo3, matPaper, matPaper, matPaper]
+);
+panelBobo3.position.set(bookW / 2, 0, 0);
+panelBobo3.visible = false;
+pivotBobo2.add(panelBobo3);
+
+// 啵啵4：从第四章目录“下面那条边”往上翻出来。
+// 转轴就在第四章目录的下边缘，最终中心点停在 x=-bookW、z=0，后面啵啵3会精准接到它左边。
+const pivotBobo4FromFourth = new THREE.Group();
+pivotBobo4FromFourth.position.set(-bookW, 0.004, -bookD / 2);
+pivotBobo4FromFourth.rotation.x = Math.PI;
+tigerGroup.add(pivotBobo4FromFourth);
+
+const panelBobo4 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matBobo4, matPaper, matPaper, matPaper]
+);
+panelBobo4.position.set(0, 0, bookD / 2);
+panelBobo4.visible = false;
+pivotBobo4FromFourth.add(panelBobo4);
+
+pivotBobo1.rotation.z = -Math.PI;
+pivotBobo2.rotation.z = Math.PI;
+
+// =================【 自闭症UI：星语星愿结构 】=================
+// 自闭症ui1从啵啵1下面翻折出来；ui2-6改为从ui1左边由右往左展开，最终折到ui1左侧
+const pivotAutism1FromBobo = new THREE.Group();
+pivotAutism1FromBobo.position.set(-bookW, -0.004, bookD / 2);
+pivotAutism1FromBobo.rotation.x = Math.PI;
+tigerGroup.add(pivotAutism1FromBobo);
+
+const panelAutism1 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matAutism1, matAutism1, matAutism1, matAutism1, matAutism1, matAutism1]
+);
+panelAutism1.position.set(0, 0, bookD / 2);
+panelAutism1.visible = false;
+pivotAutism1FromBobo.add(panelAutism1);
+
+// 自闭症ui2-6：从ui1右边连续翻折出来。
+// ui1点击后会整体向左 5 个A4；最终排列为 ui1-ui2-ui3-ui4-ui5-ui6，
+// ui6停在中心左侧，且ui2-6全程是父子链式连接，不会和前面的页面断开。
+const pivotAutism1 = new THREE.Group();
+pivotAutism1.position.set(bookW / 2, -0.002, 0);
+panelAutism1.add(pivotAutism1);
+
+const panelAutism2 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matAutism2, matPaper, matPaper, matPaper]
+);
+panelAutism2.position.set(bookW / 2, 0, 0);
+panelAutism2.visible = false;
+pivotAutism1.add(panelAutism2);
+
+const pivotAutism2 = new THREE.Group();
+pivotAutism2.position.set(bookW / 2, -0.001, 0);
+panelAutism2.add(pivotAutism2);
+
+const panelAutism3 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matAutism3, matPaper, matPaper, matPaper]
+);
+panelAutism3.position.set(bookW / 2, 0, 0);
+panelAutism3.visible = false;
+pivotAutism2.add(panelAutism3);
+
+const pivotAutism3 = new THREE.Group();
+pivotAutism3.position.set(bookW / 2, -0.001, 0);
+panelAutism3.add(pivotAutism3);
+
+const panelAutism4 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matAutism4, matPaper, matPaper, matPaper]
+);
+panelAutism4.position.set(bookW / 2, 0, 0);
+panelAutism4.visible = false;
+pivotAutism3.add(panelAutism4);
+
+const pivotAutism4 = new THREE.Group();
+pivotAutism4.position.set(bookW / 2, -0.001, 0);
+panelAutism4.add(pivotAutism4);
+
+const panelAutism5 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matAutism5, matPaper, matPaper, matPaper]
+);
+panelAutism5.position.set(bookW / 2, 0, 0);
+panelAutism5.visible = false;
+pivotAutism4.add(panelAutism5);
+
+const pivotAutism5 = new THREE.Group();
+pivotAutism5.position.set(bookW / 2, -0.001, 0);
+panelAutism5.add(pivotAutism5);
+
+const panelAutism6 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matAutism6, matPaper, matPaper, matPaper]
+);
+panelAutism6.position.set(bookW / 2, 0, 0);
+panelAutism6.visible = false;
+pivotAutism5.add(panelAutism6);
+
+// 右侧手风琴折叠的初始角度，展开时全部转到 0；ui6始终连在ui5后面，不会断开。
+pivotAutism1.rotation.z = -Math.PI;
+pivotAutism2.rotation.z = Math.PI;
+pivotAutism3.rotation.z = -Math.PI;
+pivotAutism4.rotation.z = Math.PI;
+pivotAutism5.rotation.z = -Math.PI;
+
+// =================【 第四章结尾：从自闭症ui1下面翻折 】=================
+// 只在最后一步显示；转轴会在点击时对齐到自闭症ui1下面那条边
+const pivotChapter4EndFromAutism = new THREE.Group();
+pivotChapter4EndFromAutism.position.set(-bookW, -0.006, bookD);
+pivotChapter4EndFromAutism.rotation.x = Math.PI;
+tigerGroup.add(pivotChapter4EndFromAutism);
+
+const panelChapter4End = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matChapter4End, matChapter4End, matChapter4End, matChapter4End, matChapter4End, matChapter4End]
+);
+panelChapter4End.position.set(0, 0, bookD / 2);
+panelChapter4End.visible = false;
+pivotChapter4EndFromAutism.add(panelChapter4End);
+
+// 傩戏1接在第二章目录右移后的位置下方
+const panelNuo1 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matNuo1, matNuo1, matNuo1, matNuo1, matNuo1, matNuo1]
+);
+panelNuo1.position.set(bookW, -0.002, 0);
+panelNuo1.visible = false;
+tigerGroup.add(panelNuo1);
+
+const pivotNuo1 = new THREE.Group();
+pivotNuo1.position.set(bookW / 2, -0.002, 0);
+panelNuo1.add(pivotNuo1);
+
+const panelNuo2 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matNuo2, matPaper, matPaper, matPaper]);
+panelNuo2.position.set(bookW / 2, 0, 0);
+panelNuo2.visible = false;
+pivotNuo1.add(panelNuo2);
+
+const pivotNuo2 = new THREE.Group();
+pivotNuo2.position.set(bookW / 2, -0.001, 0);
+panelNuo2.add(pivotNuo2);
+
+const panelNuo3 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matNuo3, matPaper, matPaper, matPaper]);
+panelNuo3.position.set(bookW / 2, 0, 0);
+panelNuo3.visible = false;
+pivotNuo2.add(panelNuo3);
+
+const pivotNuo3 = new THREE.Group();
+pivotNuo3.position.set(bookW / 2, -0.001, 0);
+panelNuo3.add(pivotNuo3);
+
+const panelNuo4 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matNuo4, matPaper, matPaper, matPaper]);
+panelNuo4.position.set(bookW / 2, 0, 0);
+panelNuo4.visible = false;
+pivotNuo3.add(panelNuo4);
+
+pivotNuo1.rotation.z = -Math.PI;
+pivotNuo2.rotation.z = Math.PI;
+pivotNuo3.rotation.z = -Math.PI;
+
+// 厨王争霸1接在傩戏1下面
+const panelCook1 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matCook1, matCook1, matCook1, matCook1, matCook1, matCook1]
+);
+panelCook1.position.set(bookW, -0.004, 0);
+panelCook1.visible = false;
+tigerGroup.add(panelCook1);
+
+const pivotCook1 = new THREE.Group();
+pivotCook1.position.set(bookW / 2, -0.002, 0);
+panelCook1.add(pivotCook1);
+
+const panelCook2 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matCook2, matPaper, matPaper, matPaper]);
+panelCook2.position.set(bookW / 2, 0, 0);
+panelCook2.visible = false;
+pivotCook1.add(panelCook2);
+
+const pivotCook2 = new THREE.Group();
+pivotCook2.position.set(bookW / 2, -0.001, 0);
+panelCook2.add(pivotCook2);
+
+const panelCook3 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matCook3, matPaper, matPaper, matPaper]);
+panelCook3.position.set(bookW / 2, 0, 0);
+panelCook3.visible = false;
+pivotCook2.add(panelCook3);
+
+const pivotCook3 = new THREE.Group();
+pivotCook3.position.set(bookW / 2, -0.001, 0);
+panelCook3.add(pivotCook3);
+
+const panelCook4 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matCook4, matPaper, matPaper, matPaper]);
+panelCook4.position.set(bookW / 2, 0, 0);
+panelCook4.visible = false;
+pivotCook3.add(panelCook4);
+
+pivotCook1.rotation.z = -Math.PI;
+pivotCook2.rotation.z = Math.PI;
+pivotCook3.rotation.z = -Math.PI;
+
+const panelChapter2End = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matChapter2End, matChapter2End, matChapter2End, matChapter2End, matChapter2End, matChapter2End]
+);
+panelChapter2End.position.set(bookW, -0.006, 0);
+panelChapter2End.visible = false;
+tigerGroup.add(panelChapter2End);
+
+// =================【 第三章计算机手风琴结构 】=================
+const panelComputer1 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matComputer1, matComputer1, matComputer1, matComputer1, matComputer1, matComputer1]
+);
+panelComputer1.position.set(0, 0.004, bookD); // 先压在第三章目录下面，点击后继续向下滑出
+panelComputer1.visible = false;
+tigerGroup.add(panelComputer1);
+
+const pivotComputer1 = new THREE.Group();
+pivotComputer1.position.set(bookW / 2, -0.002, 0);
+panelComputer1.add(pivotComputer1);
+
+const panelComputer2 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matComputer2, matPaper, matPaper, matPaper]);
+panelComputer2.position.set(bookW / 2, 0, 0);
+panelComputer2.visible = false;
+pivotComputer1.add(panelComputer2);
+
+const pivotComputer2 = new THREE.Group();
+pivotComputer2.position.set(bookW / 2, -0.001, 0);
+panelComputer2.add(pivotComputer2);
+
+const panelComputer3 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matComputer3, matPaper, matPaper, matPaper]);
+panelComputer3.position.set(bookW / 2, 0, 0);
+panelComputer3.visible = false;
+pivotComputer2.add(panelComputer3);
+
+const pivotComputer3 = new THREE.Group();
+pivotComputer3.position.set(bookW / 2, -0.001, 0);
+panelComputer3.add(pivotComputer3);
+
+const panelComputer4 = new THREE.Mesh(new THREE.BoxGeometry(bookW, 0.002, bookD), [matPaper, matPaper, matComputer4, matPaper, matPaper, matPaper]);
+panelComputer4.position.set(bookW / 2, 0, 0);
+panelComputer4.visible = false;
+pivotComputer3.add(panelComputer4);
+
+pivotComputer1.rotation.z = -Math.PI;
+pivotComputer2.rotation.z = Math.PI;
+pivotComputer3.rotation.z = -Math.PI;
+
+// =================【 海报 + 第三章结尾结构 】=================
+// 海报1放在计算机1下面；第三章目录和计算机1不动，海报1自己从计算机1下面滑出
+const panelPoster1 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPoster1, matPoster1, matPoster1, matPoster1, matPoster1, matPoster1]
+);
+panelPoster1.position.set(0, 0.002, bookD * 2);
+panelPoster1.visible = false;
+tigerGroup.add(panelPoster1);
+
+const pivotPoster1 = new THREE.Group();
+pivotPoster1.position.set(bookW / 2, -0.002, 0);
+panelPoster1.add(pivotPoster1);
+
+const panelPoster2 = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matPaper, matPaper, matPoster2, matPaper, matPaper, matPaper]
+);
+panelPoster2.position.set(bookW / 2, 0, 0);
+panelPoster2.visible = false;
+pivotPoster1.add(panelPoster2);
+pivotPoster1.rotation.z = -Math.PI;
+
+// 第三章结尾放在海报1下面；海报1上移后显示
+const panelChapter3End = new THREE.Mesh(
+    new THREE.BoxGeometry(bookW, 0.002, bookD),
+    [matChapter3End, matChapter3End, matChapter3End, matChapter3End, matChapter3End, matChapter3End]
+);
+panelChapter3End.position.set(0, -0.002, bookD * 4);
+panelChapter3End.visible = false;
+tigerGroup.add(panelChapter3End);
+
+        // =================【 5. 状态机交互逻辑 】=================
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let appState = 0; 
+        let isAnimating = false; 
+        const tipEl = document.getElementById('tip');
+
+        window.addEventListener('pointerdown', (e) => {
+            if (isAnimating) return; 
+
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            if (intersects.length > 0) {
+                let hitLid = false;
+                let hitPaper = false;
+                let hitDragon = false;
+
+                // 💡 修复点 2：贯穿遍历所有交点，确保点到了想要的元素（防止包围盒重叠引起干扰）
+                for(let i=0; i<intersects.length; i++) {
+                    let obj = intersects[i].object;
+                    while(obj) {
+                        if (obj === lidGroup) hitLid = true;
+                        if (obj === accGroup) hitPaper = true;
+                        if (obj === dragonGroup || obj === bookGroup) hitDragon = true;
+                        obj = obj.parent;
+                    }
+                }
+
+                // 阶段1：开盖
+                if (appState === 0 && hitLid) {
+                    isAnimating = true;
+                    appState = 1;
+                    tipEl.style.background = "#d4af37";
+                    tipEl.innerText = "阶段 2：点击盒内顶层【独立的纸张】将其拿起";
+
+                    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+                    tl.to(lidGroup.position, { y: 3.4, duration: 0.9, ease: "power2.out" })
+                      .to(lidGroup.position, { x: 4.8, y: 4.8, duration: 1.1, ease: "power2.inOut" })
+                      .to(lidGroup.rotation, { y: -0.25, duration: 0.4 }, "-=0.2")
+                      .call(() => {
+                          lidGroup.visible = false;
+                      });
+                }
+                
+                // 阶段2：拿起独立纸张，锚定左侧
+                else if (appState === 1 && hitPaper) {
+                    isAnimating = true;
+                    appState = 2;
+                    tipEl.style.background = "#e67e22";
+                    tipEl.innerText = "阶段 3：纸张已在左边就位！再次点击它，向右展开";
+
+                    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+                    tl.to(accGroup.position, { x: -3.0, y: 2.0, z: 1.3, duration: 1.2, ease: "power2.out" })
+                      .to(accGroup.rotation, { x: 0.4, y: 0.0, duration: 1.2, ease: "power2.out" }, 0);
+                }
+
+                // 阶段3：保持第一页不动，向右展开第二、三页
+                else if (appState === 2 && hitPaper) {
+                    isAnimating = true;
+                    appState = 3;
+                    tipEl.style.background = "#27ae60";
+                    tipEl.innerText = "阶段 4：展示完成！再次点击纸张，自动收起并移出画面";
+
+                    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+                    tl.to(pivot1.rotation, { z: 0, duration: 1.2, ease: "power2.inOut" }, 0);
+                    tl.to(pivot2.rotation, { z: 0, duration: 1.2, ease: "power2.inOut" }, 0.4);
+                    tl.to(accGroup.rotation, { x: 0.2, duration: 1.6, ease: "power2.inOut" }, 0);
+                }
+                
+                // 阶段4：自动折叠收好，放回右侧并让出主舞台
+                else if (appState === 3 && hitPaper) {
+                    isAnimating = true;
+                    appState = 4;
+                    tipEl.style.background = "#e74c3c";
+                    tipEl.innerText = "独立纸张已收好。点击正中间的【图1】将其往上平滑拉出！";
+
+                    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+                    tl.to(pivot2.rotation, { z: -Math.PI, duration: 1.0, ease: "power2.inOut" }, 0);
+                    tl.to(pivot1.rotation, { z: Math.PI, duration: 1.0, ease: "power2.inOut" }, 0.4);
+
+                    // 自我介绍页展示完成后，不再停在右侧；直接移出舞台并隐藏，避免遮挡后续章节
+                    tl.to(accGroup.position, { x: 8, y: 6, z: -5, duration: 1.2, ease: "power2.inOut" }, 0.8);
+                    tl.to(accGroup.rotation, { x: 0, y: 0, z: 0, duration: 1.2, ease: "power2.inOut" }, 0.8);
+                    tl.call(() => {
+                        accGroup.visible = false;
+                    }, null, 2.05);
+                }
+
+                // 阶段 5：图1往上平移抽出，同平面展示图2
+                else if (appState === 4 && hitDragon) {
+                    isAnimating = true;
+                    appState = 5;
+                    tipEl.style.background = "#d35400";
+                    tipEl.innerText = "阶段 5：图1已滑出，图2展现！点击区域，向右拉出手风琴（图3,4,5）";
+
+                    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+                    tl.to(panelDrag1.position, { z: -bookD, duration: 1.2, ease: "power2.inOut" }, 0);
+                    tl.to(panelDrag1.position,{
+    duration:1.2,
+    ease:"power2.inOut"
+},0);
+                }
+
+                // 阶段 6：横向长手风琴通过 Z 轴连续翻折展开
+                else if (appState === 5 && hitDragon) {
+                    isAnimating = true;
+                    appState = 6;
+                    tipEl.style.background = "#2ecc71";
+                    tipEl.innerText = "阶段 6：长卷全拉出展示完成！再次点击将整体自动收回";
+
+                    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+                    tl.to(pivotH1.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0)
+                      .to(pivotH2.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.25)
+                      .to(pivotH3.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.5);
+                }
+
+                // 阶段 7：只收起崇宁真君234，目录和崇宁真君1保持当前位置
+else if (appState === 6 && hitDragon) {
+    isAnimating = true;
+    appState = 7;
+
+    tipEl.style.background = "#e74c3c";
+    tipEl.innerText = "崇宁真君234已收起。再次点击崇宁真君1，向上滑出并带出朝元图1";
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    tl.to(pivotH3.rotation, {
+        z: -Math.PI,
+        duration: 0.8,
+        ease: "power2.inOut"
+    }, 0);
+
+    tl.to(pivotH2.rotation, {
+        z: Math.PI,
+        duration: 0.8,
+        ease: "power2.inOut"
+    }, 0.2);
+
+    tl.to(pivotH1.rotation, {
+        z: -Math.PI,
+        duration: 0.8,
+        ease: "power2.inOut"
+    }, 0.4);
+}
+// 阶段 8：崇宁真君1向上滑动，露出朝元图1
+else if (appState === 7 && hitDragon) {
+    isAnimating = true;
+    appState = 8;
+
+    tipEl.style.background = "#8e44ad";
+    tipEl.innerText = "朝元图1已出现。再次点击展开朝元图2-6";
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    // 阶段 8：第一章目录 + 崇宁真君1 同步再向上平移一张A4纸，露出朝元图1
+tl.to(panelDrag1.position, {
+    z: -bookD * 2,
+    duration: 1.2,
+    ease: "power2.inOut"
+}, 0);
+
+tl.to(panelDrag2.position, {
+    z: -bookD,
+    duration: 1.2,
+    ease: "power2.inOut"
+}, 0);
+}
+
+
+// 阶段 9：朝元图2-6向右展开
+else if (appState === 8 && hitDragon) {
+    isAnimating = true;
+    appState = 9;
+
+    tipEl.style.background = "#2ecc71";
+    tipEl.innerText = "朝元图展开完成。再次点击收回朝元图2-6";
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    tl.to(pivotCY1.rotation, {
+        z: 0,
+        duration: 1.0,
+        ease: "power2.inOut"
+    }, 0);
+
+    tl.to(pivotCY2.rotation, {
+        z: 0,
+        duration: 1.0,
+        ease: "power2.inOut"
+    }, 0.2);
+
+    tl.to(pivotCY3.rotation, {
+        z: 0,
+        duration: 1.0,
+        ease: "power2.inOut"
+    }, 0.4);
+
+    tl.to(pivotCY4.rotation, {
+        z: 0,
+        duration: 1.0,
+        ease: "power2.inOut"
+    }, 0.6);
+
+    tl.to(pivotCY5.rotation, {
+        z: 0,
+        duration: 1.0,
+        ease: "power2.inOut"
+    }, 0.8);
+}
+
+
+// 阶段 10：只收回朝元图2-6，收好后第一章结尾马上出现；前三张此时不移动
+else if (appState === 9 && hitDragon) {
+    isAnimating = true;
+    appState = 10;
+
+    tipEl.style.background = "#34495e";
+    tipEl.innerText = "第一章结尾已出现。再次点击整体上移并进入第二章目录";
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    // 只收起朝元图2-6，不移动第一章目录、崇宁真君1、朝元图1
+    tl.to(pivotCY5.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0)
+      .to(pivotCY4.rotation, { z: Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.15)
+      .to(pivotCY3.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.3)
+      .to(pivotCY2.rotation, { z: Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.45)
+      .to(pivotCY1.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.6);
+
+    // 朝元图2-6收好后，第一章结尾立即出现
+    tl.call(() => { panelChapterEnd.visible = true; }, null, 0.9);
+}
+
+// 阶段 11：第一章目录、崇宁真君1、朝元图1、第一章结尾一起上移一张A4，中间变成第二章目录
+else if (appState === 10 && hitDragon) {
+    isAnimating = true;
+    appState = 12;
+
+    tipEl.style.background = "#8e44ad";
+    tipEl.innerText = "第二章目录已出现。再次点击第二章目录右移一张A4";
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(panelDrag1.position, { z: -bookD * 4, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.to(panelDrag2.position, { z: -bookD * 3, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.to(panelCY1.position, { z: -bookD * 2, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.to(panelChapterEnd.position, { z: -bookD, duration: 1.2, ease: "power2.inOut" }, 0);
+
+    tl.call(() => { panelTigerDir.visible = true; }, null, 0.85);
+}
+
+// 阶段 13：第二章目录只右移一张A4，中间先显示第三章目录但不能进入
+else if (appState === 12 && hitDragon) {
+    isAnimating = true;
+    appState = 13;
+
+    tipEl.style.background = "#d35400";
+    tipEl.innerText = "第二章目录已完整右移，中间已变为第三章目录，但需第二章结束后才能点击";
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+
+    // 第二章目录先完整右移，移完整之后中间才变成第三章目录
+    tl.to(panelTigerDir.position, { x: bookW, duration: 0.9, ease: "power2.inOut" }, 0);
+    tl.call(() => { panelThirdDir.visible = true; }, null, 0.9);
+}
+
+// 阶段 14：第二章目录上移一张A4，露出傩戏1
+else if (appState === 13 && hitDragon) {
+    isAnimating = true;
+    appState = 14;
+
+    tipEl.style.background = "#d35400";
+    tipEl.innerText = "傩戏1已出现。再次点击展开傩戏2、3、4";
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(panelTigerDir.position, { z: -bookD, duration: 1.0, ease: "power2.inOut" }, 0);
+    tl.call(() => { panelNuo1.visible = true; }, null, 0.75);
+}
+
+// 阶段 15：傩戏2、3、4从傩戏1中向右展开
+else if (appState === 14 && hitDragon) {
+    isAnimating = true;
+    appState = 15;
+
+    tipEl.style.background = "#2ecc71";
+    tipEl.innerText = "傩戏2、3、4已展开。再次点击收起";
+
+    panelNuo2.visible = true;
+    panelNuo3.visible = true;
+    panelNuo4.visible = true;
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(pivotNuo1.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0)
+      .to(pivotNuo2.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.25)
+      .to(pivotNuo3.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.5);
+}
+
+// 阶段 16：收起傩戏2、3、4，傩戏1保持当前位置
+else if (appState === 15 && hitDragon) {
+    isAnimating = true;
+    appState = 16;
+
+    tipEl.style.background = "#e74c3c";
+    tipEl.innerText = "傩戏2、3、4已收好。再次点击，第二章目录和傩戏1一起上移";
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelNuo2.visible = false;
+            panelNuo3.visible = false;
+            panelNuo4.visible = false;
+            isAnimating = false;
+        }
+    });
+    tl.to(pivotNuo3.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0)
+      .to(pivotNuo2.rotation, { z: Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.2)
+      .to(pivotNuo1.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.4);
+}
+
+// 阶段 17：第二章目录和傩戏1共同上移一张A4，露出厨王争霸1
+else if (appState === 16 && hitDragon) {
+    isAnimating = true;
+    appState = 17;
+
+    tipEl.style.background = "#d35400";
+    tipEl.innerText = "厨王争霸1已出现。再次点击展开厨王争霸2、3、4";
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(panelTigerDir.position, { z: -bookD * 2, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.to(panelNuo1.position, { z: -bookD, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.call(() => { panelCook1.visible = true; }, null, 0.75);
+}
+
+// 阶段 18：厨王争霸2、3、4从厨王争霸1中向右展开
+else if (appState === 17 && hitDragon) {
+    isAnimating = true;
+    appState = 18;
+
+    tipEl.style.background = "#2ecc71";
+    tipEl.innerText = "厨王争霸2、3、4已展开。再次点击收起";
+
+    panelCook2.visible = true;
+    panelCook3.visible = true;
+    panelCook4.visible = true;
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(pivotCook1.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0)
+      .to(pivotCook2.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.25)
+      .to(pivotCook3.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.5);
+}
+
+// 阶段 19：收起厨王争霸2、3、4，厨王争霸1保持当前位置
+else if (appState === 18 && hitDragon) {
+    isAnimating = true;
+    appState = 19;
+
+    tipEl.style.background = "#e74c3c";
+    tipEl.innerText = "厨王争霸2、3、4已收起。再次点击进入第二章结尾";
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelCook2.visible = false;
+            panelCook3.visible = false;
+            panelCook4.visible = false;
+            isAnimating = false;
+        }
+    });
+    tl.to(pivotCook3.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0)
+      .to(pivotCook2.rotation, { z: Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.2)
+      .to(pivotCook1.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.4);
+}
+
+// 阶段 20：第二章目录、傩戏1、厨王争霸1整体上移一张A4，露出第二章结尾
+else if (appState === 19 && hitDragon) {
+    isAnimating = true;
+    appState = 20;
+
+    tipEl.style.background = "#34495e";
+    tipEl.innerText = "第二章结尾已出现。再次点击第三章目录";
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(panelTigerDir.position, { z: -bookD * 3, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.to(panelNuo1.position, { z: -bookD * 2, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.to(panelCook1.position, { z: -bookD, duration: 1.2, ease: "power2.inOut" }, 0);
+    tl.call(() => { panelChapter2End.visible = true; }, null, 0.85);
+}
+
+// 阶段 21：第二章结束后，第一次点击第三章目录，第三章目录下移一个A4
+else if (appState === 20 && hitDragon) {
+    isAnimating = true;
+    appState = 21;
+
+    tipEl.style.background = "#8e44ad";
+    tipEl.innerText = "第三章目录已下移一张A4。再次点击第三章目录，计算机1从它下面出来";
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(panelThirdDir.position, { z: bookD, duration: 1.2, ease: "power2.inOut" }, 0);
+    // 第三章目录完整移走后，中间再变成第四章目录；但此时还不能点击进入第四章
+    tl.call(() => { panelFourthDir.visible = true; }, null, 1.15);
+}
+
+// 阶段 22：再次点击第三章目录，计算机1从第三章目录下面滑出
+else if (appState === 21 && hitDragon) {
+    isAnimating = true;
+    appState = 22;
+
+    tipEl.style.background = "#d35400";
+    tipEl.innerText = "计算机1已从第三章目录下面出现。再次点击展开计算机2、3、4";
+
+    // 第三章目录已经在 z = bookD；计算机1从它下面继续往下滑出，保持“目录下面”的位置关系
+    panelComputer1.position.z = bookD;
+    panelComputer1.visible = true;
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+
+    tl.to(panelComputer1.position, {
+        z: bookD * 2,
+        duration: 1.0,
+        ease: "power2.inOut"
+    }, 0);
+}
+
+// 阶段 23：计算机2、3、4从计算机1中向右展开
+else if (appState === 22 && hitDragon) {
+    isAnimating = true;
+    appState = 23;
+
+    tipEl.style.background = "#2ecc71";
+    tipEl.innerText = "计算机2、3、4已展开。再次点击收起";
+
+    panelComputer2.visible = true;
+    panelComputer3.visible = true;
+    panelComputer4.visible = true;
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+    tl.to(pivotComputer1.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0)
+      .to(pivotComputer2.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.25)
+      .to(pivotComputer3.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.5);
+}
+
+// 阶段 24：收起计算机2、3、4，计算机1保持当前位置
+else if (appState === 23 && hitDragon) {
+    isAnimating = true;
+    appState = 24;
+
+    tipEl.style.background = "#e74c3c";
+    tipEl.innerText = "计算机2、3、4已收起";
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelComputer2.visible = false;
+            panelComputer3.visible = false;
+            panelComputer4.visible = false;
+            isAnimating = false;
+        }
+    });
+    tl.to(pivotComputer3.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0)
+      .to(pivotComputer2.rotation, { z: Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.2)
+      .to(pivotComputer1.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.4);
+}
+
+
+// 阶段 25：第三章目录和计算机1都不动，只让海报1从计算机1下面滑出
+else if (appState === 24 && hitDragon) {
+    isAnimating = true;
+    appState = 25;
+
+    tipEl.style.background = "#d35400";
+    tipEl.innerText = "海报1已从计算机1下面出现。再次点击海报1，向右展开海报2";
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    // 海报1先在计算机1位置下方起步，再向下滑出一张A4；第三章目录和计算机1保持不动
+    panelPoster1.position.z = bookD * 2;
+    panelPoster1.visible = true;
+
+    tl.to(panelPoster1.position, {
+        z: bookD * 3,
+        duration: 1.2,
+        ease: "power2.inOut"
+    }, 0);
+}
+
+// 阶段 26：点击海报1，海报2向右展开
+else if (appState === 25 && hitDragon) {
+    isAnimating = true;
+    appState = 26;
+
+    tipEl.style.background = "#2ecc71";
+    tipEl.innerText = "海报2已展开。再次点击海报1收起海报2";
+
+    panelPoster2.visible = true;
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    tl.to(pivotPoster1.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0);
+}
+
+// 阶段 27：再次点击海报1，收起海报2
+else if (appState === 26 && hitDragon) {
+    isAnimating = true;
+    appState = 27;
+
+    tipEl.style.background = "#e74c3c";
+    tipEl.innerText = "海报2已收起。再次点击海报1，第三章结尾从海报1下面出现";
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelPoster2.visible = false;
+            isAnimating = false;
+        }
+    });
+
+    tl.to(pivotPoster1.rotation, { z: -Math.PI, duration: 0.8, ease: "power2.inOut" }, 0);
+}
+
+// 阶段 28：海报1保持原位不动，第三章结尾直接从海报1下面出现
+else if (appState === 27 && hitDragon) {
+    isAnimating = true;
+    appState = 28;
+
+    tipEl.style.background = "#34495e";
+    tipEl.innerText = "第三章结尾已出现。现在可以点击中间的第四章目录";
+
+    panelChapter3End.visible = true;
+    isAnimating = false;
+}
+
+// 阶段 29：第三章结尾出现后，点击第四章目录，第四章目录向左滑出一张A4
+else if (appState === 28 && hitDragon) {
+    isAnimating = true;
+    appState = 29;
+
+    tipEl.style.background = "#8e44ad";
+    tipEl.innerText = "第四章目录已左滑。再次点击，第四章目录上移一张A4并露出啵啵1";
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    tl.to(panelFourthDir.position, {
+        x: -bookW,
+        duration: 1.0,
+        ease: "power2.inOut"
+    }, 0);
+
+    // 第四章目录完全左移出去以后，中间空出来的书页变成黑色
+    tl.call(() => {
+        turnCenterBlack();
+    }, null, 1.0);
+}
+
+// 阶段 30：第四章目录保持左侧位置，上移一张A4，下面露出啵啵1
+else if (appState === 29 && hitDragon) {
+    isAnimating = true;
+    appState = 30;
+
+    tipEl.style.background = "#d35400";
+    tipEl.innerText = "啵啵1已从第四章目录下面出现。再次点击：先左移1张A4，啵啵4从目录下边翻上来，再展开啵啵2、3";
+
+    const tl = gsap.timeline({
+        onComplete: () => isAnimating = false
+    });
+
+    tl.to(panelFourthDir.position, {
+        z: -bookD,
+        duration: 1.2,
+        ease: "power2.inOut"
+    }, 0);
+
+    tl.call(() => {
+        panelBobo1.position.set(-bookW, 0.002, 0);
+        panelBobo1.visible = true;
+
+        panelBobo2.visible = false;
+        panelBobo3.visible = false;
+        panelBobo4.visible = false;
+
+        pivotBobo1.rotation.z = -Math.PI;
+        pivotBobo2.rotation.z = Math.PI;
+        pivotBobo4FromFourth.rotation.x = Math.PI;
+    }, null, 0.75);
+}
+
+// 阶段 31：严格按“1格-翻4-再移2格-展开2/3”的顺序执行
+// ① 啵啵1先向左平移 1 个 A4，和即将翻出的啵啵4贴边
+// ② 啵啵4从第四章目录下面那条边，绕边缘从下往上翻出来
+// ③ 啵啵1继续向左平移 2 个 A4，同时啵啵2、3从啵啵1右侧展开，最后啵啵3和啵啵4贴住不断开
+else if (appState === 30 && hitDragon) {
+    isAnimating = true;
+    appState = 31;
+
+    tipEl.style.background = "#2ecc71";
+    tipEl.innerText = "啵啵1、2、3、4已连成一排手风琴书。再次点击啵啵1收起。";
+
+    // 展开前恢复到安全初始状态，防止重复触发造成错位
+    panelBobo1.position.set(-bookW, 0.002, 0);
+    panelBobo2.visible = false;
+    panelBobo3.visible = false;
+    panelBobo4.visible = true;
+
+    pivotBobo1.rotation.z = -Math.PI;
+    pivotBobo2.rotation.z = Math.PI;
+
+    // 啵啵4先压在第四章目录下方：转轴就在第四章目录下面那条边
+    pivotBobo4FromFourth.position.set(-bookW, 0.004, -bookD / 2);
+    pivotBobo4FromFourth.rotation.x = Math.PI;
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            // 最终锁死位置：啵啵1、2、3、4分别在 -4、-3、-2、-1 个 A4，
+            // 啵啵3右边缘和啵啵4左边缘正好贴住，不留缝。
+            panelBobo1.position.set(-bookW * 4, 0.002, 0);
+            pivotBobo1.rotation.z = 0;
+            pivotBobo2.rotation.z = 0;
+            pivotBobo4FromFourth.rotation.x = 0;
+            panelBobo2.visible = true;
+            panelBobo3.visible = true;
+            panelBobo4.visible = true;
+            isAnimating = false;
+        }
+    });
+
+    // ① 啵啵1先从 -1A4 左移到 -2A4
+    tl.to(panelBobo1.position, {
+        x: -bookW * 2,
+        duration: 0.75,
+        ease: "power2.inOut"
+    }, 0);
+
+    // ② 啵啵4从第四章目录下面那条边，直接从下往上翻出来
+    tl.to(pivotBobo4FromFourth.rotation, {
+        x: 0,
+        duration: 0.85,
+        ease: "power2.inOut"
+    }, 0.75);
+
+    // ③ 啵啵4翻上来以后，啵啵1再继续向左移 2 个 A4
+    // 同时啵啵2、啵啵3从啵啵1和啵啵4之间展开出来
+    tl.call(() => {
+        panelBobo2.visible = true;
+        panelBobo3.visible = true;
+    }, null, 1.6);
+
+    tl.to(panelBobo1.position, {
+        x: -bookW * 4,
+        duration: 1.25,
+        ease: "power2.inOut"
+    }, 1.6);
+
+    tl.to(pivotBobo1.rotation, {
+        z: 0,
+        duration: 1.25,
+        ease: "power2.inOut"
+    }, 1.6);
+
+    tl.to(pivotBobo2.rotation, {
+        z: 0,
+        duration: 1.25,
+        ease: "power2.inOut"
+    }, 1.6);
+}
+
+// 阶段 32：再次点击啵啵1，啵啵4做底，啵啵1、2、3从左往右折回去，最后啵啵1回到第四章目录下面
+else if (appState === 31 && hitDragon) {
+    isAnimating = true;
+    appState = 32;
+
+    tipEl.style.background = "#e74c3c";
+    tipEl.innerText = "啵啵2、3、4已按啵啵4为底收回，啵啵1回到第四章目录下面。再次点击啵啵1进入自闭症UI。";
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelBobo1.position.set(-bookW, 0.002, 0);
+            panelBobo2.visible = false;
+            panelBobo3.visible = false;
+            panelBobo4.visible = false;
+            pivotBobo1.rotation.z = -Math.PI;
+            pivotBobo2.rotation.z = Math.PI;
+            pivotBobo4FromFourth.rotation.x = Math.PI;
+            isAnimating = false;
+        }
+    });
+
+    // 收回时不让啵啵4先消失：啵啵4先做底，啵啵1、2、3整体从左往右靠回去。
+    panelBobo2.visible = true;
+    panelBobo3.visible = true;
+    panelBobo4.visible = true;
+    pivotBobo4FromFourth.rotation.x = 0;
+
+    // ① 啵啵1从左侧往右回收；因为2、3挂在1后面，会跟着一起回去，视觉上不分开。
+    tl.to(panelBobo1.position, {
+        x: -bookW,
+        z: 0,
+        duration: 1.15,
+        ease: "power2.inOut"
+    }, 0);
+
+    // ② 同时把啵啵2、3往上折叠回啵啵1这一摞，形成从左往右收回的感觉。
+    tl.to(pivotBobo2.rotation, { z: Math.PI, duration: 1.0, ease: "power2.inOut" }, 0.12);
+    tl.to(pivotBobo1.rotation, { z: -Math.PI, duration: 1.0, ease: "power2.inOut" }, 0.24);
+
+    // ③ 等啵啵1、2、3已经贴回到目录下面后，啵啵4再沿目录下边缘翻回去，避免看起来分开收。
+    tl.to(pivotBobo4FromFourth.rotation, { x: Math.PI, duration: 0.8, ease: "power2.inOut" }, 0.9);
+}
+
+// 阶段 33：再次点击啵啵1，啵啵1和第四章目录共同上移一个A4，啵啵1下面翻折出自闭症ui1
+else if (appState === 32 && hitDragon) {
+    isAnimating = true;
+    appState = 33;
+
+    tipEl.style.background = "#d35400";
+    tipEl.innerText = "自闭症ui1已从啵啵1下面翻折出来。再次点击自闭症ui1展开ui2-6。";
+
+    // 自闭症ui恢复初始折叠状态：ui1先隐藏在啵啵1下面，避免一出现就压到啵啵1位置
+    panelAutism1.visible = false;
+    panelAutism2.visible = false;
+    panelAutism3.visible = false;
+    panelAutism4.visible = false;
+    panelAutism5.visible = false;
+    panelAutism6.visible = false;
+
+    pivotAutism1.rotation.z = -Math.PI;
+    pivotAutism2.rotation.z = Math.PI;
+    pivotAutism3.rotation.z = -Math.PI;
+    pivotAutism4.rotation.z = Math.PI;
+    pivotAutism5.rotation.z = -Math.PI;
+
+    // 自闭症ui1的转轴放在啵啵1下边缘，Y轴压低到啵啵1下方，避免翻出前占住啵啵1的位置
+    pivotAutism1FromBobo.position.set(panelBobo1.position.x, -0.004, panelBobo1.position.z + bookD / 2);
+    pivotAutism1FromBobo.rotation.x = Math.PI;
+
+    const tl = gsap.timeline({ onComplete: () => isAnimating = false });
+
+    // 第四章目录和啵啵1共同上移一个A4
+    tl.to(panelFourthDir.position, {
+        z: -bookD * 2,
+        duration: 1.1,
+        ease: "power2.inOut"
+    }, 0);
+
+    tl.to(panelBobo1.position, {
+        z: -bookD,
+        duration: 1.1,
+        ease: "power2.inOut"
+    }, 0);
+
+    // 自闭症ui1的转轴同步跟着啵啵1移动到啵啵1下边缘
+    tl.to(pivotAutism1FromBobo.position, {
+        z: -bookD / 2,
+        duration: 1.1,
+        ease: "power2.inOut"
+    }, 0);
+
+    // 等啵啵1和转轴基本上移到位后，再让ui1显示；此时它还压在啵啵1下方，不会占住啵啵1
+    tl.call(() => { panelAutism1.visible = true; }, null, 0.52);
+
+    // 自闭症ui1从啵啵1下面翻折出来
+    tl.to(pivotAutism1FromBobo.rotation, {
+        x: 0,
+        duration: 0.9,
+        ease: "power2.inOut"
+    }, 0.55);
+}
+
+// 阶段 34：点击自闭症ui1，ui1连着啵啵1和第四章目录一起左移5个A4，然后ui2-6从ui1右侧连续展开，ui6停在中心左侧且全程不断开
+else if (appState === 33 && hitDragon) {
+    isAnimating = true;
+    appState = 34;
+
+    tipEl.style.background = "#2ecc71";
+    tipEl.innerText = "自闭症ui1带着啵啵1和第四章目录左移，ui2-6已连续展开，ui6在中心左侧且不断开。";
+
+    panelAutism2.visible = true;
+    panelAutism3.visible = true;
+    panelAutism4.visible = true;
+    panelAutism5.visible = true;
+    panelAutism6.visible = true;
+
+    pivotAutism1.rotation.z = -Math.PI;
+    pivotAutism2.rotation.z = Math.PI;
+    pivotAutism3.rotation.z = -Math.PI;
+    pivotAutism4.rotation.z = Math.PI;
+    pivotAutism5.rotation.z = -Math.PI;
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelFourthDir.position.x = -bookW * 6;
+            panelBobo1.position.x = -bookW * 6;
+            pivotAutism1FromBobo.position.x = -bookW * 6;
+            pivotAutism1.rotation.z = 0;
+            pivotAutism2.rotation.z = 0;
+            pivotAutism3.rotation.z = 0;
+            pivotAutism4.rotation.z = 0;
+            pivotAutism5.rotation.z = 0;
+            isAnimating = false;
+        }
+    });
+
+    // 自闭症ui1、啵啵1、第四章目录整体同时向左移动5个A4
+    tl.to(panelFourthDir.position, {
+        x: -bookW * 6,
+        duration: 1.25,
+        ease: "power2.inOut"
+    }, 0);
+
+    tl.to(panelBobo1.position, {
+        x: -bookW * 6,
+        duration: 1.25,
+        ease: "power2.inOut"
+    }, 0);
+
+    tl.to(pivotAutism1FromBobo.position, {
+        x: -bookW * 6,
+        duration: 1.25,
+        ease: "power2.inOut"
+    }, 0);
+
+    // 自闭症ui2-6从自闭症ui1右边连续逐页翻折展开；最终ui6停在中心左侧，且ui6连着ui5不断开
+    tl.to(pivotAutism1.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.35)
+      .to(pivotAutism2.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.55)
+      .to(pivotAutism3.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.75)
+      .to(pivotAutism4.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 0.95)
+      .to(pivotAutism5.rotation, { z: 0, duration: 1.0, ease: "power2.inOut" }, 1.15);
+}
+
+// 阶段 35：再次点击自闭症ui1，收回自闭症ui2-6，并让自闭症ui1回到中心左边位置
+else if (appState === 34 && hitDragon) {
+    isAnimating = true;
+    appState = 35;
+
+    tipEl.style.background = "#e74c3c";
+    tipEl.innerText = "自闭症ui2、3、4、5、6已收回，自闭症ui1回到中心左边。再次点击进入第四章结尾。";
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelAutism2.visible = false;
+            panelAutism3.visible = false;
+            panelAutism4.visible = false;
+            panelAutism5.visible = false;
+            panelAutism6.visible = false;
+
+            // 锁定中心左边位置：第四章目录、啵啵1、自闭症ui1保持同一列
+            panelFourthDir.position.x = -bookW;
+            panelBobo1.position.x = -bookW;
+            pivotAutism1FromBobo.position.x = -bookW;
+
+            pivotAutism1.rotation.z = -Math.PI;
+            pivotAutism2.rotation.z = Math.PI;
+            pivotAutism3.rotation.z = -Math.PI;
+            pivotAutism4.rotation.z = Math.PI;
+            pivotAutism5.rotation.z = -Math.PI;
+
+            isAnimating = false;
+        }
+    });
+
+    // ui6 -> ui2 反向连续收回，保持整条链不断开
+    tl.to(pivotAutism5.rotation, { z: -Math.PI, duration: 0.75, ease: "power2.inOut" }, 0)
+      .to(pivotAutism4.rotation, { z: Math.PI, duration: 0.75, ease: "power2.inOut" }, 0.15)
+      .to(pivotAutism3.rotation, { z: -Math.PI, duration: 0.75, ease: "power2.inOut" }, 0.30)
+      .to(pivotAutism2.rotation, { z: Math.PI, duration: 0.75, ease: "power2.inOut" }, 0.45)
+      .to(pivotAutism1.rotation, { z: -Math.PI, duration: 0.75, ease: "power2.inOut" }, 0.60);
+
+    // 收回的同时，第四章目录、啵啵1、自闭症ui1一起回到中心左边
+    tl.to(panelFourthDir.position, { x: -bookW, duration: 1.1, ease: "power2.inOut" }, 0.65);
+    tl.to(panelBobo1.position, { x: -bookW, duration: 1.1, ease: "power2.inOut" }, 0.65);
+    tl.to(pivotAutism1FromBobo.position, { x: -bookW, duration: 1.1, ease: "power2.inOut" }, 0.65);
+}
+
+// 阶段 36：再次点击自闭症ui1，第四章目录、啵啵1、自闭症ui1全部上移一个A4，从自闭症ui1下面翻折出第四章结尾
+else if (appState === 35 && hitDragon) {
+    isAnimating = true;
+    appState = 36;
+
+    tipEl.style.background = "#34495e";
+    tipEl.innerText = "第四章结尾已从自闭症ui1下面翻折出来。";
+
+    // 确保第四章结尾初始隐藏在自闭症ui1下面，并且转轴贴住自闭症ui1下面那条边
+    panelChapter4End.visible = false;
+    pivotChapter4EndFromAutism.rotation.x = Math.PI;
+
+    const targetFourthZ = panelFourthDir.position.z - bookD;
+    const targetBoboZ = panelBobo1.position.z - bookD;
+    const targetAutismPivotZ = pivotAutism1FromBobo.position.z - bookD;
+    const startChapterPivotZ = pivotAutism1FromBobo.position.z + bookD;
+    const targetChapterPivotZ = targetAutismPivotZ + bookD;
+
+    pivotChapter4EndFromAutism.position.set(
+        pivotAutism1FromBobo.position.x,
+        -0.006,
+        startChapterPivotZ
+    );
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            panelFourthDir.position.z = targetFourthZ;
+            panelBobo1.position.z = targetBoboZ;
+            pivotAutism1FromBobo.position.z = targetAutismPivotZ;
+            pivotChapter4EndFromAutism.position.z = targetChapterPivotZ;
+            pivotChapter4EndFromAutism.rotation.x = 0;
+            panelChapter4End.visible = true;
+            isAnimating = false;
+        }
+    });
+
+    // 三张主页面共同上移一个A4
+    tl.to(panelFourthDir.position, { z: targetFourthZ, duration: 1.15, ease: "power2.inOut" }, 0);
+    tl.to(panelBobo1.position, { z: targetBoboZ, duration: 1.15, ease: "power2.inOut" }, 0);
+    tl.to(pivotAutism1FromBobo.position, { z: targetAutismPivotZ, duration: 1.15, ease: "power2.inOut" }, 0);
+    tl.to(pivotChapter4EndFromAutism.position, { z: targetChapterPivotZ, duration: 1.15, ease: "power2.inOut" }, 0);
+
+    // 移动到位后，第四章结尾从自闭症ui1下面翻折出来
+    tl.call(() => { panelChapter4End.visible = true; }, null, 0.70);
+    tl.to(pivotChapter4EndFromAutism.rotation, { x: 0, duration: 0.95, ease: "power2.inOut" }, 0.72);
+}
+            }
+        });
+
+        // =================【 6. 渲染循环 】=================
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
